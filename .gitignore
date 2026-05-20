@@ -1,0 +1,27 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.env
+venv/
+.venv/
+
+# Server
+server/uploads/
+server/static/plots/
+server/model/
+server/data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Brainstorming
+.superpowers/
