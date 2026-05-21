@@ -10,7 +10,6 @@ import os
 import shutil
 import tempfile
 import uuid
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
@@ -20,15 +19,13 @@ from plotter import plot_comparison, PLOT_DIR
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
 
+app = FastAPI()
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+
+@app.on_event("startup")
+async def startup():
     init_model()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    yield
-
-
-app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/api/upload")

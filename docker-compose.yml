@@ -1,0 +1,16 @@
+services:
+  server:
+    build: ./server
+    container_name: nmr-matcher
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./server/model:/app/model:ro
+      - ./server/data:/app/data:ro
+      - uploads:/app/uploads
+      - plots:/app/static/plots
+    restart: unless-stopped
+
+volumes:
+  uploads:
+  plots:

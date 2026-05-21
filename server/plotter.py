@@ -1,13 +1,21 @@
 """
-Spectrum visualization using matplotlib.
+Spectrum visualization using matplotlib (Agg backend).
 
 Generates a PNG comparison plot: query spectrum overlaid with top-N reference
-spectra. The plot is saved to a static directory and served via GET endpoint.
+spectra. Plot files are saved to static/plots/ and served via GET endpoint.
 """
 
 import os
+import uuid
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 PLOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'plots')
+
+# colors for reference spectra
+_LINE_COLORS = ['#dc2626', '#2563eb', '#16a34a', '#9333ea', '#ea580c']
 
 
 def plot_comparison(query_ppm, query_fid, results, top_n=3):
@@ -17,20 +25,42 @@ def plot_comparison(query_ppm, query_fid, results, top_n=3):
     Args:
         query_ppm: ppm values of query spectrum
         query_fid: intensity values of query spectrum
-        results: list of result dicts (sorted by probability, from model_runner.match())
-        top_n: number of top matches to overlay
+        results: list of result dicts, each may have 'ppm'/'fid' for plotting
+        top_n: number of top results to overlay
 
     Returns:
-        str: filename of the saved plot (e.g. 'abc123.png')
+        filename of the saved plot (e.g. 'abc123.png')
     """
     os.makedirs(PLOT_DIR, exist_ok=True)
-    # TODO: use matplotlib to plot query spectrum + top_n reference spectra
-    # import matplotlib.pyplot as plt
-    # fig, ax = plt.subplots()
-    # ax.plot(query_ppm, query_fid, label='Query', color='black')
-    # for r in results[:top_n]:
-    #     ax.plot(r['ppm'], r['fid'], label=f"{r['name']} ({r['probability']:.2f})")
-    # ...
-    # fig.savefig(os.path.join(PLOT_DIR, filename))
-    filename = 'placeholder.png'
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    ax.plot(query_ppm, query_fid, color='#1e1e2e', linewidth=1.0,
+            label='Query Spectrum')
+    ax.fill_between(query_ppm, 0, query_fid, color='#1e1e2e', alpha=0.06)
+
+    refs_to_plot = [r for r in results[:top_n]
+                    if 'ppm' in r and 'fid' in r
+                    and len(r['ppm']) > 0]
+
+    for i, ref in enumerate(refs_to_plot):
+        color = _LINE_COLORS[i % len(_LINE_COLORS)]
+        prob = ref.get('probability', 0)
+        label = f"{ref['name']}  ({prob:.3f})"
+        ax.plot(ref['ppm'], ref['fid'], color=color, linewidth=0.8,
+                alpha=0.85, label=label)
+
+    ax.set_xlim(max(query_ppm), min(query_ppm))
+    ax.set_xlabel('Chemical Shift (ppm)', fontsize=11)
+    ax.set_ylabel('Intensity', fontsize=11)
+    ax.set_title('NMR Spectrum Comparison — Query vs Top Matches', fontsize=13)
+    ax.legend(fontsize=9, loc='upper left', framealpha=0.9)
+    ax.grid(True, alpha=0.25)
+    fig.tight_layout()
+
+    filename = f"{uuid.uuid4().hex}.png"
+    filepath = os.path.join(PLOT_DIR, filename)
+    fig.savefig(filepath, dpi=120)
+    plt.close(fig)
+
     return filename
