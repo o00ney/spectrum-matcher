@@ -1,6 +1,6 @@
 import os
 
-DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
+DEFAULT_SERVER_URL = "https://nmr.ooney.xyz"
 DEFAULT_TIMEOUT_SECONDS = 15
 
 
