@@ -14,6 +14,17 @@ class SpectrumMatcherApi:
         self.server_url = (server_url or get_server_url()).rstrip("/")
         self.timeout = timeout if timeout is not None else get_request_timeout()
 
+    def check_connection(self):
+        """Quick connectivity check. Returns True if server is reachable."""
+        try:
+            resp = requests.get(
+                f"{self.server_url}/docs",
+                timeout=min(self.timeout, 5),
+            )
+            return resp.status_code == 200
+        except requests.RequestException:
+            return False
+
     def upload_zip(self, zip_path, filename=None):
         upload_name = filename or os.path.basename(zip_path)
         try:
@@ -23,8 +34,17 @@ class SpectrumMatcherApi:
                     files={"file": (upload_name, file_obj, "application/zip")},
                     timeout=self.timeout,
                 )
+        except requests.Timeout as exc:
+            raise ApiError(
+                "Server response timeout. The model may still be loading."
+            ) from exc
+        except requests.ConnectionError as exc:
+            raise ApiError(
+                "Cannot connect to " + self.server_url
+                + ". Check the server URL and network."
+            ) from exc
         except requests.RequestException as exc:
-            raise ApiError(f"Upload failed: {exc}") from exc
+            raise ApiError("Upload failed: " + str(exc)) from exc
 
         self._raise_for_status(response)
         try:
@@ -42,7 +62,7 @@ class SpectrumMatcherApi:
                 timeout=self.timeout,
             )
         except requests.RequestException as exc:
-            raise ApiError(f"Plot download failed: {exc}") from exc
+            raise ApiError("Plot download failed: " + str(exc)) from exc
 
         self._raise_for_status(response)
         if not response.content:
@@ -61,7 +81,7 @@ class SpectrumMatcherApi:
         if isinstance(payload, dict) and payload.get("detail"):
             detail = str(payload["detail"])
 
-        message = f"Server error {response.status_code}"
+        message = "Server error " + str(response.status_code)
         if detail:
-            message = f"{message}: {detail}"
+            message = message + ": " + detail
         raise ApiError(message)

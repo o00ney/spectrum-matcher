@@ -11,21 +11,25 @@ class UploadWorker(QThread):
     finished = Signal(dict)
     error = Signal(str)
 
-    def __init__(self, folder_path, api=None):
+    def __init__(self, path, api=None):
         super().__init__()
-        self.folder_path = folder_path
+        self.path = path
         self.api = api or SpectrumMatcherApi()
 
     def run(self):
         zip_path = None
         try:
-            zip_path = _zip_folder(self.folder_path)
-            filename = f"{os.path.basename(os.path.normpath(self.folder_path))}.zip"
+            if os.path.isfile(self.path) and self.path.lower().endswith(".zip"):
+                zip_path = self.path
+            else:
+                zip_path = _zip_folder(self.path)
+            filename = os.path.basename(zip_path)
             self.finished.emit(self.api.upload_zip(zip_path, filename))
         except (OSError, zipfile.BadZipFile, ApiError, ValueError) as exc:
             self.error.emit(str(exc))
         finally:
-            if zip_path and os.path.exists(zip_path):
+            # only cleanup temp zips we created
+            if zip_path and zip_path != self.path and os.path.exists(zip_path):
                 try:
                     os.unlink(zip_path)
                 except OSError:
@@ -48,9 +52,32 @@ class PlotWorker(QThread):
             self.error.emit(str(exc))
 
 
+class HealthCheckWorker(QThread):
+    done = Signal(bool)
+
+    def __init__(self, api=None):
+        super().__init__()
+        self.api = api or SpectrumMatcherApi()
+
+    def run(self):
+        self.done.emit(self.api.check_connection())
+
+
 def _zip_folder(folder_path):
     if not os.path.isdir(folder_path):
-        raise ValueError("Please select a valid folder.")
+        raise ValueError("Please select a valid folder or .zip file.")
+
+    # verify its a Bruker spectrum directory
+    has_pdata = False
+    for root, dirs, _ in os.walk(folder_path):
+        if os.path.basename(root) == "pdata":
+            has_pdata = True
+            break
+    if not has_pdata:
+        raise ValueError(
+            "No Bruker spectrum found. The folder must contain a "
+            "'pdata' subdirectory."
+        )
 
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
     zip_path = tmp.name
