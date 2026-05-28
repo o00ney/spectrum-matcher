@@ -31,15 +31,27 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.api = SpectrumMatcherApi()
-        self.upload_thread = None
-        self.plot_thread = None
-        self.health_thread = None
-        self.plot_pixmap = None
+        self._upload_thread = None
+        self._plot_thread = None
+        self._health_thread = None
+        self._plot_pixmap = None
 
         self.setWindowTitle("NMR Spectrum Matcher")
         self.setMinimumSize(900, 650)
         self._setup_ui()
         self._check_connection()
+
+    # ---- close event ----
+
+    def closeEvent(self, event):
+        for t in (self._upload_thread, self._plot_thread, self._health_thread):
+            if t is not None and t.isRunning():
+                t.cancel()
+                t.quit()
+                t.wait(3000)
+        event.accept()
+
+    # ---- ui setup ----
 
     def _setup_ui(self):
         central = QWidget()
@@ -72,7 +84,8 @@ class MainWindow(QMainWindow):
         self.drop_label.setAlignment(Qt.AlignCenter)
         self.drop_label.setMinimumHeight(100)
         self.drop_label.setStyleSheet(
-            "border: 2px dashed #888; border-radius: 8px; font-size: 14px; color: #666;"
+            "border: 2px dashed #888; border-radius: 8px; "
+            "font-size: 14px; color: #666;"
         )
         self.drop_label.mousePressEvent = self._on_drop_click
         layout.addWidget(self.drop_label)
@@ -101,7 +114,9 @@ class MainWindow(QMainWindow):
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(["Flavor Name", "Probability"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeToContents
+        )
         self.table.setAlternatingRowColors(True)
         splitter.addWidget(self.table)
 
@@ -118,15 +133,16 @@ class MainWindow(QMainWindow):
     # ---- connection ----
 
     def _check_connection(self):
+        self._cleanup_thread(self._health_thread)
         self.status_label.setText("Checking...")
         self.status_label.setStyleSheet("color: #888;")
-        self.health_thread = HealthCheckWorker(self.api)
-        self.health_thread.done.connect(self._on_health_result)
-        self.health_thread.done.connect(self.health_thread.deleteLater)
-        self.health_thread.start()
+        self._health_thread = HealthCheckWorker(self.api)
+        self._health_thread.done.connect(self._on_health_result)
+        self._health_thread.done.connect(self._health_thread.deleteLater)
+        self._health_thread.start()
 
     def _on_health_result(self, ok):
-        self.health_thread = None
+        self._health_thread = None
         if ok:
             self.status_label.setText("Connected")
             self.status_label.setStyleSheet("color: #16a34a;")
@@ -186,28 +202,26 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Drop a Bruker folder or .zip file.")
         self.status_label.setStyleSheet("color: #dc2626;")
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._refresh_plot()
-
     # ---- upload flow ----
 
     def _upload(self, path):
+        self._cleanup_thread(self._upload_thread)
+
         name = os.path.basename(os.path.normpath(path))
         self._set_busy(True, "Uploading: " + name + " ...")
         self.table.setRowCount(0)
-        self.plot_pixmap = None
+        self._plot_pixmap = None
         self.plot_label.setText("Waiting for comparison plot...")
 
-        self.upload_thread = UploadWorker(path, self.api)
-        self.upload_thread.finished.connect(self._on_upload_result)
-        self.upload_thread.error.connect(self._on_upload_error)
-        self.upload_thread.finished.connect(self.upload_thread.deleteLater)
-        self.upload_thread.error.connect(self.upload_thread.deleteLater)
-        self.upload_thread.start()
+        self._upload_thread = UploadWorker(path, self.api)
+        self._upload_thread.finished.connect(self._on_upload_result)
+        self._upload_thread.error.connect(self._on_upload_error)
+        self._upload_thread.finished.connect(self._upload_thread.deleteLater)
+        self._upload_thread.error.connect(self._upload_thread.deleteLater)
+        self._upload_thread.start()
 
     def _on_upload_result(self, data):
-        self.upload_thread = None
+        self._upload_thread = None
         self._set_busy(False, DROP_TEXT)
 
         results = data.get("results", [])
@@ -215,9 +229,9 @@ class MainWindow(QMainWindow):
         if results:
             top = results[0]
             pct = float(top.get("probability", 0)) * 100
-            name = str(top.get("name", "?"))
+            nm = str(top.get("name", "?"))
             self.status_label.setText(
-                "Top: " + name + " (" + format(pct, ".1f") + "%)"
+                "Top: " + nm + " (" + format(pct, ".1f") + "%)"
             )
             self.status_label.setStyleSheet("color: #16a34a;")
         else:
@@ -231,37 +245,45 @@ class MainWindow(QMainWindow):
             self.plot_label.setText("No comparison plot returned.")
 
     def _on_upload_error(self, message):
-        self.upload_thread = None
+        self._upload_thread = None
         self._set_busy(False, DROP_TEXT)
-        self.status_label.setText("Upload failed: " + str(message))
+        self.status_label.setText(str(message)[:120])
         self.status_label.setStyleSheet("color: #dc2626;")
         self.plot_label.setText("No comparison plot loaded.")
 
     # ---- plot fetch ----
 
     def _download_plot(self, plot_id):
+        self._cleanup_thread(self._plot_thread)
         self.plot_label.setText("Loading comparison plot...")
-        self.plot_thread = PlotWorker(plot_id, self.api)
-        self.plot_thread.finished.connect(self._on_plot_loaded)
-        self.plot_thread.error.connect(self._on_plot_error)
-        self.plot_thread.finished.connect(self.plot_thread.deleteLater)
-        self.plot_thread.error.connect(self.plot_thread.deleteLater)
-        self.plot_thread.start()
+        self._plot_thread = PlotWorker(plot_id, self.api)
+        self._plot_thread.finished.connect(self._on_plot_loaded)
+        self._plot_thread.error.connect(self._on_plot_error)
+        self._plot_thread.finished.connect(self._plot_thread.deleteLater)
+        self._plot_thread.error.connect(self._plot_thread.deleteLater)
+        self._plot_thread.start()
 
     def _on_plot_loaded(self, image_data):
-        self.plot_thread = None
+        self._plot_thread = None
         pixmap = QPixmap()
-        if not pixmap.loadFromData(image_data):
+        if pixmap.loadFromData(image_data):
+            self._plot_pixmap = pixmap
+            self._refresh_plot()
+        else:
             self.plot_label.setText("Server returned an invalid plot image.")
-            return
-        self.plot_pixmap = pixmap
-        self._refresh_plot()
 
     def _on_plot_error(self, message):
-        self.plot_thread = None
-        self.plot_label.setText("Plot error: " + str(message))
+        self._plot_thread = None
+        self.plot_label.setText(str(message)[:120])
 
     # ---- helpers ----
+
+    @staticmethod
+    def _cleanup_thread(thread):
+        if thread is not None and thread.isRunning():
+            thread.cancel()
+            thread.quit()
+            thread.wait(3000)
 
     def _populate_results(self, results):
         self.table.setRowCount(len(results))
@@ -270,22 +292,26 @@ class MainWindow(QMainWindow):
             probability = result.get("probability")
             self.table.setItem(row, 0, QTableWidgetItem(name))
             try:
-                probability_text = format(float(probability), ".4f")
+                text = format(float(probability), ".4f")
             except (TypeError, ValueError):
-                probability_text = "n/a"
-            item = QTableWidgetItem(probability_text)
+                text = "n/a"
+            item = QTableWidgetItem(text)
             item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 1, item)
 
     def _refresh_plot(self):
-        if not self.plot_pixmap:
+        if not self._plot_pixmap:
             return
         w = max(300, self.plot_label.width() - 24)
         h = max(200, self.plot_label.height() - 24)
-        scaled = self.plot_pixmap.scaled(
+        scaled = self._plot_pixmap.scaled(
             w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.plot_label.setPixmap(scaled)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._refresh_plot()
 
     def _set_busy(self, is_busy, drop_text):
         self.select_btn.setEnabled(not is_busy)

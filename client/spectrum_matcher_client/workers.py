@@ -1,5 +1,6 @@
 import os
 import tempfile
+import traceback
 import zipfile
 
 from PySide6.QtCore import QThread, Signal
@@ -15,20 +16,31 @@ class UploadWorker(QThread):
         super().__init__()
         self.path = path
         self.api = api or SpectrumMatcherApi()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         zip_path = None
         try:
+            if self._is_cancelled:
+                return
             if os.path.isfile(self.path) and self.path.lower().endswith(".zip"):
                 zip_path = self.path
             else:
                 zip_path = _zip_folder(self.path)
+            if self._is_cancelled:
+                return
             filename = os.path.basename(zip_path)
-            self.finished.emit(self.api.upload_zip(zip_path, filename))
-        except (OSError, zipfile.BadZipFile, ApiError, ValueError) as exc:
-            self.error.emit(str(exc))
+            result = self.api.upload_zip(zip_path, filename)
+            if not self._is_cancelled:
+                self.finished.emit(result)
+        except Exception as exc:
+            traceback.print_exc()
+            msg = str(exc) if str(exc) else type(exc).__name__
+            self.error.emit("Upload: " + msg)
         finally:
-            # only cleanup temp zips we created
             if zip_path and zip_path != self.path and os.path.exists(zip_path):
                 try:
                     os.unlink(zip_path)
@@ -44,12 +56,22 @@ class PlotWorker(QThread):
         super().__init__()
         self.plot_id = plot_id
         self.api = api or SpectrumMatcherApi()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         try:
-            self.finished.emit(self.api.fetch_plot(self.plot_id))
-        except ApiError as exc:
-            self.error.emit(str(exc))
+            if self._is_cancelled:
+                return
+            data = self.api.fetch_plot(self.plot_id)
+            if not self._is_cancelled:
+                self.finished.emit(data)
+        except Exception as exc:
+            traceback.print_exc()
+            msg = str(exc) if str(exc) else type(exc).__name__
+            self.error.emit("Plot: " + msg)
 
 
 class HealthCheckWorker(QThread):
@@ -58,25 +80,29 @@ class HealthCheckWorker(QThread):
     def __init__(self, api=None):
         super().__init__()
         self.api = api or SpectrumMatcherApi()
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
-        self.done.emit(self.api.check_connection())
+        if not self._is_cancelled:
+            self.done.emit(self.api.check_connection())
 
 
 def _zip_folder(folder_path):
     if not os.path.isdir(folder_path):
         raise ValueError("Please select a valid folder or .zip file.")
 
-    # verify its a Bruker spectrum directory
     has_pdata = False
-    for root, dirs, _ in os.walk(folder_path):
-        if os.path.basename(root) == "pdata":
+    for _root, dirs, _files in os.walk(folder_path):
+        if os.path.basename(_root) == "pdata":
             has_pdata = True
             break
     if not has_pdata:
         raise ValueError(
-            "No Bruker spectrum found. The folder must contain a "
-            "'pdata' subdirectory."
+            "No Bruker spectrum found. The folder must contain "
+            "a 'pdata' subdirectory."
         )
 
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
