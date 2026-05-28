@@ -73,6 +73,12 @@ async def upload_spectrum(file: UploadFile = File(...)):
         'query_name': result['query_name'],
         'results': result['results'],
         'plot_id': plot_name.replace('.png', ''),
+        'model': {
+            'name': 'DeepMID',
+            'arch': 'Siamese CNN + Spatial Pyramid Pooling',
+            'params': '470K',
+            'task': 'NMR mixture component identification',
+        },
     }
 
 

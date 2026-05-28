@@ -1,6 +1,7 @@
 import os
+import time
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -36,14 +37,21 @@ class MainWindow(QMainWindow):
         self._health_thread = None
         self._plot_pixmap = None
 
+        # elapsed-time tracking
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.setInterval(200)  # update every 200 ms
+        self._elapsed_timer.timeout.connect(self._tick_elapsed)
+        self._start_ts = 0.0
+
         self.setWindowTitle("NMR Spectrum Matcher")
-        self.setMinimumSize(900, 650)
+        self.setMinimumSize(960, 720)
         self._setup_ui()
         self._check_connection()
 
     # ---- close event ----
 
     def closeEvent(self, event):
+        self._elapsed_timer.stop()
         for t in (self._upload_thread, self._plot_thread, self._health_thread):
             if t is not None and t.isRunning():
                 t.cancel()
@@ -82,7 +90,7 @@ class MainWindow(QMainWindow):
         # --- drop area ---
         self.drop_label = QLabel(DROP_TEXT)
         self.drop_label.setAlignment(Qt.AlignCenter)
-        self.drop_label.setMinimumHeight(100)
+        self.drop_label.setMinimumHeight(90)
         self.drop_label.setStyleSheet(
             "border: 2px dashed #888; border-radius: 8px; "
             "font-size: 14px; color: #666;"
@@ -104,11 +112,20 @@ class MainWindow(QMainWindow):
         self.select_zip_btn = QPushButton("Select .zip")
         self.select_zip_btn.clicked.connect(self._select_zip)
         btn_layout.addWidget(self.select_zip_btn)
+
+        self.time_label = QLabel("")
+        self.time_label.setStyleSheet("color: #888; font-size: 12px;")
+        btn_layout.addWidget(self.time_label)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
         # --- results + plot ---
         splitter = QSplitter(Qt.Vertical)
+
+        # table + model info panel
+        table_wrapper = QWidget()
+        table_layout = QVBoxLayout(table_wrapper)
+        table_layout.setContentsMargins(0, 0, 0, 0)
 
         self.table = QTableWidget()
         self.table.setColumnCount(2)
@@ -118,14 +135,23 @@ class MainWindow(QMainWindow):
             1, QHeaderView.ResizeToContents
         )
         self.table.setAlternatingRowColors(True)
-        splitter.addWidget(self.table)
+        table_layout.addWidget(self.table)
+
+        self.model_label = QLabel("")
+        self.model_label.setStyleSheet(
+            "color: #6b7280; font-size: 11px; padding: 2px 4px;"
+        )
+        self.model_label.setAlignment(Qt.AlignRight)
+        table_layout.addWidget(self.model_label)
+
+        splitter.addWidget(table_wrapper)
 
         self.plot_label = QLabel("No comparison plot loaded.")
         self.plot_label.setAlignment(Qt.AlignCenter)
-        self.plot_label.setMinimumHeight(300)
+        self.plot_label.setMinimumHeight(320)
         splitter.addWidget(self.plot_label)
 
-        splitter.setSizes([220, 380])
+        splitter.setSizes([240, 400])
         layout.addWidget(splitter)
 
         self.setAcceptDrops(True)
@@ -158,6 +184,34 @@ class MainWindow(QMainWindow):
 
     def _test_server(self):
         self._on_server_changed()
+
+    # ---- elapsed time ----
+
+    def _start_elapsed(self):
+        self._start_ts = time.monotonic()
+        self._elapsed_timer.start()
+        self._tick_elapsed()
+
+    def _stop_elapsed(self):
+        self._elapsed_timer.stop()
+        elapsed = time.monotonic() - self._start_ts
+        self.time_label.setText(
+            "Done in " + self._fmt_time(elapsed)
+        )
+
+    def _tick_elapsed(self):
+        elapsed = time.monotonic() - self._start_ts
+        self.time_label.setText(
+            "Elapsed: " + self._fmt_time(elapsed)
+        )
+
+    @staticmethod
+    def _fmt_time(seconds):
+        if seconds < 60:
+            return format(seconds, ".1f") + "s"
+        mins = int(seconds // 60)
+        secs = int(seconds % 60)
+        return str(mins) + "m " + str(secs) + "s"
 
     # ---- file selection ----
 
@@ -212,6 +266,8 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(0)
         self._plot_pixmap = None
         self.plot_label.setText("Waiting for comparison plot...")
+        self.model_label.setText("")
+        self._start_elapsed()
 
         self._upload_thread = UploadWorker(path, self.api)
         self._upload_thread.finished.connect(self._on_upload_result)
@@ -222,10 +278,21 @@ class MainWindow(QMainWindow):
 
     def _on_upload_result(self, data):
         self._upload_thread = None
+        self._stop_elapsed()
         self._set_busy(False, DROP_TEXT)
 
         results = data.get("results", [])
         self._populate_results(results)
+
+        # show model info
+        model = data.get("model", {})
+        if model:
+            self.model_label.setText(
+                "Model: " + model.get("name", "DeepMID")
+                + "  |  " + model.get("arch", "")
+                + "  |  Params: " + model.get("params", "")
+            )
+
         if results:
             top = results[0]
             pct = float(top.get("probability", 0)) * 100
@@ -246,10 +313,12 @@ class MainWindow(QMainWindow):
 
     def _on_upload_error(self, message):
         self._upload_thread = None
+        self._stop_elapsed()
         self._set_busy(False, DROP_TEXT)
         self.status_label.setText(str(message)[:120])
         self.status_label.setStyleSheet("color: #dc2626;")
         self.plot_label.setText("No comparison plot loaded.")
+        self.time_label.setText("")
 
     # ---- plot fetch ----
 
@@ -302,8 +371,8 @@ class MainWindow(QMainWindow):
     def _refresh_plot(self):
         if not self._plot_pixmap:
             return
-        w = max(300, self.plot_label.width() - 24)
-        h = max(200, self.plot_label.height() - 24)
+        w = max(320, self.plot_label.width() - 24)
+        h = max(240, self.plot_label.height() - 24)
         scaled = self._plot_pixmap.scaled(
             w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
