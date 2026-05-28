@@ -45,13 +45,14 @@ async def upload_spectrum(file: UploadFile = File(...)):
     os.makedirs(extract_dir, exist_ok=True)
     shutil.unpack_archive(zip_path, extract_dir)
 
-    # find the Bruker spectrum directory (first subdirectory inside extracted)
+    # find the Bruker spectrum directory by scanning for pdata/
+    # read_bruker_h_base expects nmr_path/1/pdata/1, so return the
+    # parent of the directory that contains 'pdata' (i.e. parent of '1/')
     inner_dir = extract_dir
-    entries = os.listdir(extract_dir)
-    if len(entries) == 1:
-        candidate = os.path.join(extract_dir, entries[0])
-        if os.path.isdir(candidate):
-            inner_dir = candidate
+    for dirpath, dirs, _ in os.walk(extract_dir):
+        if 'pdata' in dirs:
+            inner_dir = os.path.dirname(dirpath)
+            break
 
     result = match(inner_dir)
 
