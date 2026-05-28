@@ -21,7 +21,7 @@ def create_input_layers(xshapes):
 def create_convolution_layers(inputs, num_layers=0):
     convs = []
     for input_x in inputs:
-        conv = layers.Conv1D(32, 5, kernel_initializer='he_normal', input_shape=input_x.get_shape())(input_x)
+        conv = layers.Conv1D(32, 5, kernel_initializer='he_normal', input_shape=input_x.shape)(input_x)
         conv = layers.Activation('relu')(conv)
         conv = layers.MaxPooling1D(strides=2, padding='valid')(conv)
         for i in range(num_layers):
@@ -105,7 +105,7 @@ def DeepMID(xshapes, num_conv_layers, lr):
     if len(convs) >= 2:
         conv_merge = layers.concatenate(convs, 2)
         print('conv_merge layer =', conv_merge.shape)
-        conv_merge = tf.expand_dims(conv_merge, -1)
+        conv_merge = layers.Reshape((59, 64, 1))(conv_merge)
 
         conv1 = tf.keras.layers.Conv2D(128, kernel_size=(5, 5), strides=(2, 2), padding='same')(conv_merge)
         conv1 = tf.keras.layers.Activation('relu')(conv1)
@@ -158,7 +158,7 @@ def save_DeepMID(model, model_name):
 def load_DeepMID(model_name):
     model_path = f'{model_name}.h5'
     history_path = f'{model_name}.pkl'
-    model = models.load_model(model_path, custom_objects={'SpatialPyramidPooling': SpatialPyramidPooling})
+    model = models.load_model(model_path, safe_mode=False, custom_objects={'SpatialPyramidPooling': SpatialPyramidPooling})
     history = pickle.load(open(history_path, "rb"))
     model.history = callbacks.History()
     model.history.history = history

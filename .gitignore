@@ -25,3 +25,9 @@ Thumbs.db
 
 # Brainstorming
 .superpowers/
+
+# Training data & models (large files)
+DeepMID-main/
+*.zip
+*.h5
+*.pkl

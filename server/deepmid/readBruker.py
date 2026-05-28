@@ -1,6 +1,6 @@
 import os
 
-from airPLS import airPLS
+from deepmid.airPLS import airPLS
 import nmrglue as ng
 import numpy as np
 from tqdm import tqdm
