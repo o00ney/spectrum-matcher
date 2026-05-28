@@ -1,0 +1,8 @@
+{
+    "model_path": "model/model_1/test_nmr",
+    "data_path": "data/plant_flavors",
+    "name": "DeepMID",
+    "arch": "Siamese CNN + Spatial Pyramid Pooling",
+    "params": "470K",
+    "task": "NMR mixture component identification"
+}

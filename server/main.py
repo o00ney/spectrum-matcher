@@ -12,7 +12,7 @@ import uuid
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 
-from model_runner import init as init_model, match
+from model_runner import init as init_model, match, get_config
 from plotter import plot_comparison
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
@@ -75,10 +75,5 @@ async def upload_spectrum(file: UploadFile = File(...)):
         'query_name': result['query_name'],
         'results': result['results'],
         'plot_base64': plot_b64,
-        'model': {
-            'name': 'DeepMID',
-            'arch': 'Siamese CNN + Spatial Pyramid Pooling',
-            'params': '470K',
-            'task': 'NMR mixture component identification',
-        },
+        'model': dict(get_config()),
     }
