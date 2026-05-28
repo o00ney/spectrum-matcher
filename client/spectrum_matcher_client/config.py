@@ -2,7 +2,7 @@ import os
 
 DEFAULT_SERVER_URL = "https://nmr.ooney.xyz"
 LOCAL_SERVER_URL = "http://192.168.3.6:8000"
-DEFAULT_TIMEOUT_SECONDS = 15
+DEFAULT_TIMEOUT_SECONDS = 120
 
 
 def get_server_url():
