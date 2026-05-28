@@ -1,0 +1,39 @@
+##TITLE= Audit trail, TopSpin 4.1.1
+##JCAMPDX= 5.01
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= nmr
+$$ D:\2022\ZZM\20220316/LMCHJTQW_WHGTQW_HF_MeOD/1/pdata/1/auditp.txt
+##AUDIT TRAIL=  $$ (NUMBER, WHEN, WHO, WHERE, PROCESS, VERSION, WHAT)
+(   1,<2022-03-16 07:15:47.219 +0000>,<CZC035B27L\nmr>,<CZC035B27L>,<go4>,<TopSpin 4.1.1>,
+      <acquisition in progress>)
+$$ D:/2022/ZZM/20220316/LMCHJTQW_WHGTQW_HF_MeOD/1/audita.txt
+(   2,<2022-03-16 07:32:42.597 +0000>,<CZC035B27L\nmr>,<CZC035B27L>,<go4>,<TopSpin 4.1.1>,
+      <created by zg on 'Avance NEO 600' (CZC035B27L) by user 'CZC035B27L\nmr'
+       on data set with UUID 'e6ae2e74-a4f8-11ec-b49c-0030d625a2a0'
+       started at 2022-03-16 07:15:47.230 +0000, POWCHK enabled, PULCHK disabled,
+       completed at 2022-03-16 07:32:42.596 +0000
+       configuration hash MD5:
+       BB 41 CE 9B 2A 76 1F 6A D1 F8 DD E4 CE E4 CA F0
+       double data hash MD5: 64K
+       0B 40 92 C1 33 2F 8A 8D 8D 76 2E 28 65 D4 C6 4D>)
+(   3,<2022-03-16 15:32:28.097 +0800>,<nmr>,<CZC035B27L>,<proc1d>,<TopSpin 4.1.1>,
+      <Start of raw data processing
+       em LB = 0.3 SI = 64K 
+       data hash MD5: 64K
+       ED AE 34 4B F3 00 9D 6B B6 2C 82 74 FE 9E 81 28>)
+(   4,<2022-03-16 15:32:28.175 +0800>,<nmr>,<CZC035B27L>,<proc1d>,<TopSpin 4.1.1>,
+      <ft FT_mod = 6 PKNL = 1 SI = 64K 
+       data hash MD5: 64K
+       33 A2 9D D3 4A C7 B8 72 BD BC 05 4A C8 91 36 3E>)
+(   5,<2022-03-16 15:32:28.440 +0800>,<nmr>,<CZC035B27L>,<proc1d>,<TopSpin 4.1.1>,
+      <apk 
+       data hash MD5: 64K
+       A0 DF 1F A0 19 25 39 A2 01 23 EE B6 6D 27 50 6F>)
+(   6,<2022-03-16 15:32:28.503 +0800>,<nmr>,<CZC035B27L>,<proc1d>,<TopSpin 4.1.1>,
+      <abs n ABSG = 3 
+       data hash MD5: 64K
+       8A D0 67 3B EC 95 47 07 F9 A3 55 CC 28 83 7E 87>)
+##END=
+
+$$ hash MD5
+$$ 06 2C 7D 94 3F C8 A9 03 66 78 A5 38 FD 29 A8 8F

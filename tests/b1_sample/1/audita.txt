@@ -1,0 +1,22 @@
+##TITLE= Audit trail, TopSpin 4.1.1
+##JCAMPDX= 5.01
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= root
+$$ /root/.topspin-BladeEpu/local_acqu/LMCHJTQW_WHGTQW_HF_MeOD/1/audita.txt
+##AUDIT TRAIL=  $$ (NUMBER, WHEN, WHO, WHERE, PROCESS, VERSION, WHAT)
+(   1,<2022-03-16 07:15:47.219 +0000>,<CZC035B27L\nmr>,<CZC035B27L>,<go4>,<TopSpin 4.1.1>,
+      <acquisition in progress>)
+$$ D:/2022/ZZM/20220316/LMCHJTQW_WHGTQW_HF_MeOD/1/audita.txt
+(   2,<2022-03-16 07:32:42.597 +0000>,<CZC035B27L\nmr>,<CZC035B27L>,<go4>,<TopSpin 4.1.1>,
+      <created by zg on 'Avance NEO 600' (CZC035B27L) by user 'CZC035B27L\nmr'
+       on data set with UUID 'e6ae2e74-a4f8-11ec-b49c-0030d625a2a0'
+       started at 2022-03-16 07:15:47.230 +0000, POWCHK enabled, PULCHK disabled,
+       completed at 2022-03-16 07:32:42.596 +0000
+       configuration hash MD5:
+       BB 41 CE 9B 2A 76 1F 6A D1 F8 DD E4 CE E4 CA F0
+       double data hash MD5: 64K
+       0B 40 92 C1 33 2F 8A 8D 8D 76 2E 28 65 D4 C6 4D>)
+##END=
+
+$$ hash MD5
+$$ 44 85 88 86 B3 FC 42 64 31 F7 3F CC 17 4F C8 8B

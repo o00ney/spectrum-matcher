@@ -31,3 +31,7 @@ DeepMID-main/
 *.zip
 *.h5
 *.pkl
+
+# Allow test data zips
+!tests/*.zip
+!tests/b1_sample/
