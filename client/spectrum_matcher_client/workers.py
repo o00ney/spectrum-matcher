@@ -48,32 +48,6 @@ class UploadWorker(QThread):
                     pass
 
 
-class PlotWorker(QThread):
-    finished = Signal(bytes)
-    error = Signal(str)
-
-    def __init__(self, plot_id, api=None):
-        super().__init__()
-        self.plot_id = plot_id
-        self.api = api or SpectrumMatcherApi()
-        self._is_cancelled = False
-
-    def cancel(self):
-        self._is_cancelled = True
-
-    def run(self):
-        try:
-            if self._is_cancelled:
-                return
-            data = self.api.fetch_plot(self.plot_id)
-            if not self._is_cancelled:
-                self.finished.emit(data)
-        except Exception as exc:
-            traceback.print_exc()
-            msg = str(exc) if str(exc) else type(exc).__name__
-            self.error.emit("Plot: " + msg)
-
-
 class HealthCheckWorker(QThread):
     done = Signal(bool)
 

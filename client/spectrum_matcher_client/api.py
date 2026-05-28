@@ -52,23 +52,6 @@ class SpectrumMatcherApi:
         except ValueError as exc:
             raise ApiError("Server returned invalid JSON.") from exc
 
-    def fetch_plot(self, plot_id):
-        if not plot_id:
-            raise ApiError("Missing plot id.")
-
-        try:
-            response = requests.get(
-                f"{self.server_url}/api/plot/{plot_id}",
-                timeout=self.timeout,
-            )
-        except requests.RequestException as exc:
-            raise ApiError("Plot download failed: " + str(exc)) from exc
-
-        self._raise_for_status(response)
-        if not response.content:
-            raise ApiError("Server returned an empty plot image.")
-        return response.content
-
     def _raise_for_status(self, response):
         if response.status_code < 400:
             return

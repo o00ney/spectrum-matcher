@@ -1,3 +1,4 @@
+import base64
 import os
 import time
 
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from .api import SpectrumMatcherApi
 from .config import get_server_url
-from .workers import HealthCheckWorker, PlotWorker, UploadWorker
+from .workers import HealthCheckWorker, UploadWorker
 
 DROP_TEXT = (
     "Drag & drop a Bruker spectrum folder (or .zip) here\nor click to browse"
@@ -33,13 +34,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.api = SpectrumMatcherApi()
         self._upload_thread = None
-        self._plot_thread = None
         self._health_thread = None
         self._plot_pixmap = None
 
         # elapsed-time tracking
         self._elapsed_timer = QTimer(self)
-        self._elapsed_timer.setInterval(200)  # update every 200 ms
+        self._elapsed_timer.setInterval(200)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
         self._start_ts = 0.0
 
@@ -52,7 +52,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._elapsed_timer.stop()
-        for t in (self._upload_thread, self._plot_thread, self._health_thread):
+        for t in (self._upload_thread, self._health_thread):
             if t is not None and t.isRunning():
                 t.cancel()
                 t.quit()
@@ -122,7 +122,6 @@ class MainWindow(QMainWindow):
         # --- results + plot ---
         splitter = QSplitter(Qt.Vertical)
 
-        # table + model info panel
         table_wrapper = QWidget()
         table_layout = QVBoxLayout(table_wrapper)
         table_layout.setContentsMargins(0, 0, 0, 0)
@@ -195,15 +194,11 @@ class MainWindow(QMainWindow):
     def _stop_elapsed(self):
         self._elapsed_timer.stop()
         elapsed = time.monotonic() - self._start_ts
-        self.time_label.setText(
-            "Done in " + self._fmt_time(elapsed)
-        )
+        self.time_label.setText("Done in " + self._fmt_time(elapsed))
 
     def _tick_elapsed(self):
         elapsed = time.monotonic() - self._start_ts
-        self.time_label.setText(
-            "Elapsed: " + self._fmt_time(elapsed)
-        )
+        self.time_label.setText("Elapsed: " + self._fmt_time(elapsed))
 
     @staticmethod
     def _fmt_time(seconds):
@@ -284,7 +279,7 @@ class MainWindow(QMainWindow):
         results = data.get("results", [])
         self._populate_results(results)
 
-        # show model info
+        # show model attribution
         model = data.get("model", {})
         if model:
             self.model_label.setText(
@@ -305,9 +300,10 @@ class MainWindow(QMainWindow):
             self.status_label.setText("No match results returned.")
             self.status_label.setStyleSheet("color: #888;")
 
-        plot_id = data.get("plot_id")
-        if plot_id:
-            self._download_plot(plot_id)
+        # decode inline plot
+        plot_b64 = data.get("plot_base64", "")
+        if plot_b64:
+            self._show_plot_b64(plot_b64)
         else:
             self.plot_label.setText("No comparison plot returned.")
 
@@ -320,30 +316,21 @@ class MainWindow(QMainWindow):
         self.plot_label.setText("No comparison plot loaded.")
         self.time_label.setText("")
 
-    # ---- plot fetch ----
+    # ---- inline plot ----
 
-    def _download_plot(self, plot_id):
-        self._cleanup_thread(self._plot_thread)
-        self.plot_label.setText("Loading comparison plot...")
-        self._plot_thread = PlotWorker(plot_id, self.api)
-        self._plot_thread.finished.connect(self._on_plot_loaded)
-        self._plot_thread.error.connect(self._on_plot_error)
-        self._plot_thread.finished.connect(self._plot_thread.deleteLater)
-        self._plot_thread.error.connect(self._plot_thread.deleteLater)
-        self._plot_thread.start()
+    def _show_plot_b64(self, b64_string):
+        try:
+            image_data = base64.b64decode(b64_string)
+        except Exception:
+            self.plot_label.setText("Plot decode failed.")
+            return
 
-    def _on_plot_loaded(self, image_data):
-        self._plot_thread = None
         pixmap = QPixmap()
         if pixmap.loadFromData(image_data):
             self._plot_pixmap = pixmap
             self._refresh_plot()
         else:
-            self.plot_label.setText("Server returned an invalid plot image.")
-
-    def _on_plot_error(self, message):
-        self._plot_thread = None
-        self.plot_label.setText(str(message)[:120])
+            self.plot_label.setText("Invalid plot image.")
 
     # ---- helpers ----
 
