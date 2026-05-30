@@ -8,7 +8,8 @@ Build with: pyinstaller spectrum-matcher.spec
 import sys
 from pathlib import Path
 
-_root = Path(__file__).resolve().parent
+# SPECPATH is provided by PyInstaller; fallback for IDE inspection
+_root = Path(SPECPATH if 'SPECPATH' in dir() else '.').resolve()
 
 a = Analysis(
     [str(_root / 'spectrum_matcher_client' / '__main__.py')],
