@@ -1,3 +1,4 @@
+import base64
 import json
 import math
 import struct
@@ -6,11 +7,60 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOST = "127.0.0.1"
 PORT = 8000
-PLOT_ID = "mock-plot"
+
+MOCK_MODEL = {
+    "name": "DeepMID",
+    "arch": "Siamese CNN + Spatial Pyramid Pooling",
+    "params": "470K",
+    "task": "NMR mixture component identification",
+}
+
+
+def downsample(arr, target_points=3000):
+    """Uniformly subsample a 1D array to approximately target_points points."""
+    n = len(arr)
+    if n <= target_points:
+        return list(arr)
+    stride = n / target_points
+    result = []
+    i = 0.0
+    while i < n:
+        result.append(arr[int(i)])
+        i += stride
+    return result
+
+
+def generate_mock_spectrum(n_points=32724, seed=0):
+    """Generate synthetic NMR ppm/fid arrays."""
+    ppm = [10.7 - 10.4 * i / (n_points - 1) for i in range(n_points)]
+    fid = []
+    peaks = [
+        (0.9, 0.02, 1.0), (1.3, 0.03, 0.7), (2.1, 0.01, 0.5),
+        (3.5, 0.04, 0.6), (5.2, 0.02, 0.8), (7.1, 0.03, 0.4),
+        (8.5, 0.02, 0.3), (9.3, 0.01, 0.55),
+    ]
+    for i, p in enumerate(ppm):
+        v = 0.0
+        base = math.sin(i * 0.003) * 0.1 + 0.5 if seed == 0 else 0.3
+        for center, width, amp in peaks:
+            v += amp * math.exp(-((p - center * (1 + seed * 0.03)) ** 2) / (2 * width * width))
+        v += base * (0.5 + 0.5 * math.sin(p * 3.7 + seed))
+        fid.append(max(0.0, v))
+    return ppm, fid
 
 
 class MockHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
+    def do_GET(self):
+        if self.path == "/docs":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"OK")
+            return
+        self._send_json({"detail": "Not found"}, status=404)
 
     def do_POST(self):
         if self.path != "/api/upload":
@@ -21,23 +71,42 @@ class MockHandler(BaseHTTPRequestHandler):
         if length:
             self.rfile.read(length)
 
+        query_ppm, query_fid = generate_mock_spectrum(seed=-1)
+        ds_query_ppm = downsample(query_ppm)
+        ds_query_fid = downsample(query_fid)
+
+        mock_results = [
+            {"name": "Roman Chamomile Extraction-A", "probability": 0.9903, "seed": 0},
+            {"name": "Fig Extraction",              "probability": 0.9240, "seed": 1},
+            {"name": "Chicory Extraction",          "probability": 0.8639, "seed": 2},
+            {"name": "Plum Extraction",             "probability": 0.8137, "seed": 3},
+            {"name": "Carob Extraction",            "probability": 0.7098, "seed": 4},
+            {"name": "Alfalfa Extraction",          "probability": 0.6523, "seed": 5},
+            {"name": "Galbanum Extraction",         "probability": 0.5812, "seed": 6},
+            {"name": "Hops Extraction",             "probability": 0.5201, "seed": 7},
+            {"name": "Raisin Extraction",           "probability": 0.4689, "seed": 8},
+            {"name": "Roman Chamomile Extraction-B","probability": 0.4012, "seed": 9},
+            {"name": "Tobacco Maillard Reactants",  "probability": 0.3540, "seed": 10},
+            {"name": "Valerian Root Extraction",    "probability": 0.3011, "seed": 11},
+            {"name": "Yunnan Tobacco Extraction",   "probability": 0.2534, "seed": 12},
+        ]
+
+        for i, r in enumerate(mock_results):
+            if i < 3:
+                _, ref_fid = generate_mock_spectrum(seed=r["seed"])
+                r["ppm_ds"] = downsample(query_ppm)
+                r["fid_ds"] = downsample(ref_fid)
+            del r["seed"]
+
         payload = {
-            "query_name": "mock_query",
-            "results": [
-                {"name": "Linalool", "probability": 0.9321},
-                {"name": "Geraniol", "probability": 0.8174},
-                {"name": "Citral", "probability": 0.7648},
-            ],
-            "plot_id": PLOT_ID,
+            "query_name": "mock_B1_sample",
+            "query_ppm": ds_query_ppm,
+            "query_fid": ds_query_fid,
+            "results": mock_results,
+            "plot_base64": base64.b64encode(build_mock_png()).decode("ascii"),
+            "model": MOCK_MODEL,
         }
         self._send_json(payload)
-
-    def do_GET(self):
-        if self.path != f"/api/plot/{PLOT_ID}":
-            self._send_json({"detail": "Plot not found"}, status=404)
-            return
-
-        self._send_bytes(build_mock_png(), "image/png")
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt % args}")
@@ -68,7 +137,6 @@ def build_mock_png(width=900, height=360):
         sx = 1 if x1 < x2 else -1
         sy = 1 if y1 < y2 else -1
         err = dx + dy
-
         while True:
             set_pixel(x1, y1, color)
             if x1 == x2 and y1 == y2:

@@ -3,17 +3,20 @@ import os
 import time
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
+from PySide6.QtGui import QAction, QDragEnterEvent, QDropEvent, QPixmap
 from PySide6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QSplitter,
+    QStatusBar,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -22,11 +25,15 @@ from PySide6.QtWidgets import (
 
 from .api import SpectrumMatcherApi
 from .config import get_server_url
+from .export import export_results_csv, export_results_json, export_plot_png
+from .plot_widget import SpectrumPlotWidget
+from .settings import AppSettings
 from .workers import HealthCheckWorker, UploadWorker
 
 DROP_TEXT = (
     "Drag & drop a Bruker spectrum folder (or .zip) here\nor click to browse"
 )
+HISTORY_MAX = 20
 
 
 class MainWindow(QMainWindow):
@@ -36,8 +43,10 @@ class MainWindow(QMainWindow):
         self._upload_thread = None
         self._health_thread = None
         self._plot_pixmap = None
+        self._last_result_data = None
+        self._result_history = []
+        self.settings = AppSettings()
 
-        # elapsed-time tracking
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(200)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
@@ -45,19 +54,90 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("NMR Spectrum Matcher")
         self.setMinimumSize(960, 720)
+
+        self._setup_menu()
         self._setup_ui()
+        self._setup_statusbar()
+        self._restore_settings()
         self._check_connection()
 
     # ---- close event ----
 
     def closeEvent(self, event):
         self._elapsed_timer.stop()
+        self.settings.window_geometry = self.saveGeometry()
+        self.settings.window_state = self.saveState()
         for t in (self._upload_thread, self._health_thread):
             if t is not None and t.isRunning():
                 t.cancel()
                 t.quit()
                 t.wait(3000)
         event.accept()
+
+    # ---- settings ----
+
+    def _restore_settings(self):
+        saved_url = self.settings.server_url
+        if saved_url:
+            self.server_input.setText(saved_url)
+            self.api.server_url = saved_url
+        geo = self.settings.window_geometry
+        if geo:
+            self.restoreGeometry(geo)
+        state = self.settings.window_state
+        if state:
+            self.restoreState(state)
+
+    # ---- menu bar ----
+
+    def _setup_menu(self):
+        menubar = self.menuBar()
+
+        file_menu = menubar.addMenu("&File")
+        file_menu.addAction(
+            QAction("&Open Folder...", self, shortcut="Ctrl+O",
+                    triggered=self._select_folder))
+        file_menu.addAction(
+            QAction("Open &Zip...", self, shortcut="Ctrl+Shift+O",
+                    triggered=self._select_zip))
+        file_menu.addSeparator()
+        file_menu.addAction(
+            QAction("&Export Results CSV...", self, shortcut="Ctrl+E",
+                    triggered=self._export_csv))
+        file_menu.addAction(
+            QAction("Export Results &JSON...", self, shortcut="Ctrl+Shift+E",
+                    triggered=self._export_json))
+        file_menu.addAction(
+            QAction("Export &Plot PNG...", self, shortcut="Ctrl+P",
+                    triggered=self._export_plot))
+        file_menu.addSeparator()
+        file_menu.addAction(
+            QAction("&Quit", self, shortcut="Ctrl+Q", triggered=self.close))
+
+        view_menu = menubar.addMenu("&View")
+        toggle_tb = QAction("Plot &Toolbar", self, checkable=True)
+        toggle_tb.setChecked(self.settings.plot_toolbar_visible)
+        toggle_tb.toggled.connect(self._on_toggle_toolbar)
+        view_menu.addAction(toggle_tb)
+
+        help_menu = menubar.addMenu("&Help")
+        help_menu.addAction(
+            QAction("&About", self, triggered=self._show_about))
+
+    # ---- status bar ----
+
+    def _setup_statusbar(self):
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+
+    def _status(self, message, color=None, timeout=0):
+        self.status_bar.showMessage(message, timeout)
+        if color:
+            self.status_bar.setStyleSheet(
+                "QStatusBar { color: " + color + "; }"
+            )
+        else:
+            self.status_bar.setStyleSheet("")
 
     # ---- ui setup ----
 
@@ -74,17 +154,17 @@ class MainWindow(QMainWindow):
 
         self.server_input = QLineEdit(get_server_url())
         self.server_input.setPlaceholderText("http://192.168.3.6:8000")
+        self.server_input.setToolTip(
+            "Server URL (e.g., https://nmr.ooney.xyz or http://192.168.3.6:8000)"
+        )
         self.server_input.editingFinished.connect(self._on_server_changed)
         server_layout.addWidget(self.server_input)
 
         self.test_btn = QPushButton("Test")
         self.test_btn.setFixedWidth(50)
+        self.test_btn.setToolTip("Test connectivity to the server")
         self.test_btn.clicked.connect(self._test_server)
         server_layout.addWidget(self.test_btn)
-
-        self.status_label = QLabel("Checking...")
-        self.status_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        server_layout.addWidget(self.status_label, 1)
         layout.addLayout(server_layout)
 
         # --- drop area ---
@@ -95,27 +175,44 @@ class MainWindow(QMainWindow):
             "border: 2px dashed #888; border-radius: 8px; "
             "font-size: 14px; color: #666;"
         )
+        self.drop_label.setToolTip(
+            "Drag a Bruker spectrum folder or .zip file here, or click to browse"
+        )
         self.drop_label.mousePressEvent = self._on_drop_click
         layout.addWidget(self.drop_label)
 
         # --- progress ---
         self.progress = QProgressBar()
         self.progress.setVisible(False)
+        self.progress.setToolTip("Upload and processing progress")
         layout.addWidget(self.progress)
 
         # --- buttons ---
         btn_layout = QHBoxLayout()
+
         self.select_btn = QPushButton("Select Folder")
+        self.select_btn.setToolTip("Browse for a Bruker spectrum folder")
         self.select_btn.clicked.connect(self._select_folder)
         btn_layout.addWidget(self.select_btn)
 
         self.select_zip_btn = QPushButton("Select .zip")
+        self.select_zip_btn.setToolTip(
+            "Browse for a .zip file containing Bruker spectrum data"
+        )
         self.select_zip_btn.clicked.connect(self._select_zip)
         btn_layout.addWidget(self.select_zip_btn)
 
         self.time_label = QLabel("")
         self.time_label.setStyleSheet("color: #888; font-size: 12px;")
         btn_layout.addWidget(self.time_label)
+
+        self.history_combo = QComboBox()
+        self.history_combo.setMinimumWidth(160)
+        self.history_combo.setToolTip("Previous upload results")
+        self.history_combo.setEnabled(False)
+        self.history_combo.currentIndexChanged.connect(self._on_history_selected)
+        btn_layout.addWidget(self.history_combo)
+
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
@@ -127,13 +224,17 @@ class MainWindow(QMainWindow):
         table_layout.setContentsMargins(0, 0, 0, 0)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["Flavor Name", "Probability"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["#", "Flavor Name", "Probability"])
         self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeToContents
+            1, QHeaderView.Stretch
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeToContents
         )
         self.table.setAlternatingRowColors(True)
+        self.table.setSortingEnabled(False)
+        self.table.setToolTip("Click column headers to sort results")
         table_layout.addWidget(self.table)
 
         self.model_label = QLabel("")
@@ -145,10 +246,15 @@ class MainWindow(QMainWindow):
 
         splitter.addWidget(table_wrapper)
 
-        self.plot_label = QLabel("No comparison plot loaded.")
-        self.plot_label.setAlignment(Qt.AlignCenter)
-        self.plot_label.setMinimumHeight(320)
-        splitter.addWidget(self.plot_label)
+        self.plot_widget = SpectrumPlotWidget()
+        self.plot_widget.setMinimumHeight(320)
+        self.plot_widget.setToolTip(
+            "Comparison plot of query spectrum vs. top matches"
+        )
+        self.plot_widget.toolbar().setVisible(
+            self.settings.plot_toolbar_visible
+        )
+        splitter.addWidget(self.plot_widget)
 
         splitter.setSizes([240, 400])
         layout.addWidget(splitter)
@@ -159,8 +265,7 @@ class MainWindow(QMainWindow):
 
     def _check_connection(self):
         self._cleanup_thread(self._health_thread)
-        self.status_label.setText("Checking...")
-        self.status_label.setStyleSheet("color: #888;")
+        self._status("Checking...")
         self._health_thread = HealthCheckWorker(self.api)
         self._health_thread.done.connect(self._on_health_result)
         self._health_thread.done.connect(self._health_thread.deleteLater)
@@ -169,16 +274,15 @@ class MainWindow(QMainWindow):
     def _on_health_result(self, ok):
         self._health_thread = None
         if ok:
-            self.status_label.setText("Connected")
-            self.status_label.setStyleSheet("color: #16a34a;")
+            self._status("Connected to " + self.api.server_url)
         else:
-            self.status_label.setText("Unreachable")
-            self.status_label.setStyleSheet("color: #dc2626;")
+            self._status("Server unreachable", color="#dc2626")
 
     def _on_server_changed(self):
         url = self.server_input.text().strip()
         if url:
             self.api.server_url = url
+            self.settings.server_url = url
             self._check_connection()
 
     def _test_server(self):
@@ -215,17 +319,21 @@ class MainWindow(QMainWindow):
             self._select_folder()
 
     def _select_folder(self):
+        start_dir = self.settings.last_directory or ""
         folder = QFileDialog.getExistingDirectory(
-            self, "Select Bruker Spectrum Folder"
+            self, "Select Bruker Spectrum Folder", start_dir
         )
         if folder:
+            self.settings.last_directory = folder
             self._upload(folder)
 
     def _select_zip(self):
+        start_dir = self.settings.last_directory or ""
         zip_file, _ = QFileDialog.getOpenFileName(
-            self, "Select Bruker Spectrum .zip", "", "ZIP files (*.zip)"
+            self, "Select Bruker Spectrum .zip", start_dir, "ZIP files (*.zip)"
         )
         if zip_file:
+            self.settings.last_directory = os.path.dirname(zip_file)
             self._upload(zip_file)
 
     # ---- drag & drop ----
@@ -248,8 +356,7 @@ class MainWindow(QMainWindow):
             if os.path.isdir(path) or path.lower().endswith(".zip"):
                 self._upload(path)
                 return
-        self.status_label.setText("Drop a Bruker folder or .zip file.")
-        self.status_label.setStyleSheet("color: #dc2626;")
+        self._status("Drop a Bruker folder or .zip file.", color="#dc2626")
 
     # ---- upload flow ----
 
@@ -260,26 +367,34 @@ class MainWindow(QMainWindow):
         self._set_busy(True, "Uploading: " + name + " ...")
         self.table.setRowCount(0)
         self._plot_pixmap = None
-        self.plot_label.setText("Waiting for comparison plot...")
+        self.plot_widget.clear()
         self.model_label.setText("")
         self._start_elapsed()
+        self._status("Uploading " + name + " ...")
 
         self._upload_thread = UploadWorker(path, self.api)
         self._upload_thread.finished.connect(self._on_upload_result)
         self._upload_thread.error.connect(self._on_upload_error)
+        self._upload_thread.progress.connect(self._on_upload_progress)
         self._upload_thread.finished.connect(self._upload_thread.deleteLater)
         self._upload_thread.error.connect(self._upload_thread.deleteLater)
         self._upload_thread.start()
+
+    def _on_upload_progress(self, sent, total):
+        self.progress.setRange(0, total)
+        self.progress.setValue(sent)
 
     def _on_upload_result(self, data):
         self._upload_thread = None
         self._stop_elapsed()
         self._set_busy(False, DROP_TEXT)
 
+        self._last_result_data = data
+        self._add_to_history(data)
+
         results = data.get("results", [])
         self._populate_results(results)
 
-        # show model attribution
         model = data.get("model", {})
         if model:
             self.model_label.setText(
@@ -292,28 +407,34 @@ class MainWindow(QMainWindow):
             top = results[0]
             pct = float(top.get("probability", 0)) * 100
             nm = str(top.get("name", "?"))
-            self.status_label.setText(
-                "Top: " + nm + " (" + format(pct, ".1f") + "%)"
+            self._status(
+                "Top: " + nm + " (" + format(pct, ".1f") + "%)  —  "
+                + str(len(results)) + " results",
+                timeout=15000,
             )
-            self.status_label.setStyleSheet("color: #16a34a;")
         else:
-            self.status_label.setText("No match results returned.")
-            self.status_label.setStyleSheet("color: #888;")
+            self._status("No match results returned.")
 
-        # decode inline plot
-        plot_b64 = data.get("plot_base64", "")
-        if plot_b64:
-            self._show_plot_b64(plot_b64)
+        # prefer interactive plot from downsampled data
+        query_ppm = data.get("query_ppm")
+        query_fid = data.get("query_fid")
+        if query_ppm and query_fid:
+            self.plot_widget.render_comparison(query_ppm, query_fid, results)
+            self._plot_pixmap = None
         else:
-            self.plot_label.setText("No comparison plot returned.")
+            # fallback to base64 PNG
+            plot_b64 = data.get("plot_base64", "")
+            if plot_b64:
+                self._show_plot_b64(plot_b64)
+            else:
+                self.plot_widget.clear()
 
     def _on_upload_error(self, message):
         self._upload_thread = None
         self._stop_elapsed()
         self._set_busy(False, DROP_TEXT)
-        self.status_label.setText(str(message)[:120])
-        self.status_label.setStyleSheet("color: #dc2626;")
-        self.plot_label.setText("No comparison plot loaded.")
+        self._status(str(message)[:120], color="#dc2626")
+        self.plot_widget.clear()
         self.time_label.setText("")
 
     # ---- inline plot ----
@@ -322,15 +443,162 @@ class MainWindow(QMainWindow):
         try:
             image_data = base64.b64decode(b64_string)
         except Exception:
-            self.plot_label.setText("Plot decode failed.")
             return
-
         pixmap = QPixmap()
         if pixmap.loadFromData(image_data):
             self._plot_pixmap = pixmap
-            self._refresh_plot()
+            self.plot_widget.render_fallback(pixmap)
         else:
-            self.plot_label.setText("Invalid plot image.")
+            self.plot_widget.clear()
+
+    # ---- results table ----
+
+    def _populate_results(self, results):
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(results))
+        for row, result in enumerate(results):
+            rank = QTableWidgetItem()
+            rank.setData(Qt.DisplayRole, row + 1)
+            rank.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row, 0, rank)
+
+            name = QTableWidgetItem(str(result.get("name") or "<unnamed>"))
+            self.table.setItem(row, 1, name)
+
+            prob = QTableWidgetItem()
+            try:
+                prob.setData(Qt.DisplayRole, float(result.get("probability", 0)))
+            except (TypeError, ValueError):
+                pass
+            prob.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row, 2, prob)
+
+        self.table.setSortingEnabled(True)
+
+    # ---- result history ----
+
+    def _add_to_history(self, data):
+        entry = {
+            "timestamp": time.time(),
+            "query_name": data.get("query_name", ""),
+            "data": data,
+        }
+        # remove duplicate query_name entries
+        self._result_history = [
+            h for h in self._result_history
+            if h["query_name"] != entry["query_name"]
+        ]
+        self._result_history.insert(0, entry)
+        if len(self._result_history) > HISTORY_MAX:
+            self._result_history = self._result_history[:HISTORY_MAX]
+        self._rebuild_history_combo()
+
+    def _rebuild_history_combo(self):
+        self.history_combo.blockSignals(True)
+        self.history_combo.clear()
+        self.history_combo.addItem("(history)")
+        for h in self._result_history:
+            ts = time.strftime("%H:%M:%S", time.localtime(h["timestamp"]))
+            label = ts + "  " + h["query_name"]
+            self.history_combo.addItem(label)
+        self.history_combo.setCurrentIndex(0)
+        self.history_combo.setEnabled(len(self._result_history) > 0)
+        self.history_combo.blockSignals(False)
+
+    def _on_history_selected(self, index):
+        if index <= 0 or index > len(self._result_history):
+            return
+        entry = self._result_history[index - 1]
+        data = entry["data"]
+        self._last_result_data = data
+        results = data.get("results", [])
+        self._populate_results(results)
+
+        model = data.get("model", {})
+        if model:
+            self.model_label.setText(
+                "Model: " + model.get("name", "DeepMID")
+                + "  |  " + model.get("arch", "")
+                + "  |  Params: " + model.get("params", "")
+            )
+
+        query_ppm = data.get("query_ppm")
+        query_fid = data.get("query_fid")
+        if query_ppm and query_fid:
+            self.plot_widget.render_comparison(query_ppm, query_fid, results)
+        else:
+            plot_b64 = data.get("plot_base64", "")
+            if plot_b64:
+                self._show_plot_b64(plot_b64)
+
+        top = results[0] if results else {}
+        nm = str(top.get("name", "?"))
+        pct = float(top.get("probability", 0)) * 100
+        self._status("History: " + nm + " (" + format(pct, ".1f") + "%)")
+
+    # ---- export ----
+
+    def _export_csv(self):
+        if not self._last_result_data:
+            self._status("No results to export.", color="#dc2626")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Results CSV", "", "CSV (*.csv)"
+        )
+        if not path:
+            return
+        try:
+            export_results_csv(self._last_result_data.get("results", []), path)
+            self._status("Exported CSV: " + os.path.basename(path), timeout=5000)
+        except OSError as e:
+            self._status("Export failed: " + str(e), color="#dc2626")
+
+    def _export_json(self):
+        if not self._last_result_data:
+            self._status("No results to export.", color="#dc2626")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Results JSON", "", "JSON (*.json)"
+        )
+        if not path:
+            return
+        try:
+            export_results_json(self._last_result_data, path)
+            self._status("Exported JSON: " + os.path.basename(path), timeout=5000)
+        except OSError as e:
+            self._status("Export failed: " + str(e), color="#dc2626")
+
+    def _export_plot(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Plot PNG", "comparison_plot.png", "PNG (*.png)"
+        )
+        if not path:
+            return
+        try:
+            export_plot_png(self.plot_widget, path)
+            self._status("Exported PNG: " + os.path.basename(path), timeout=5000)
+        except OSError as e:
+            self._status("Export failed: " + str(e), color="#dc2626")
+
+    # ---- view ----
+
+    def _on_toggle_toolbar(self, visible):
+        self.plot_widget.set_toolbar_visible(visible)
+        self.settings.plot_toolbar_visible = visible
+
+    # ---- about ----
+
+    def _show_about(self):
+        QMessageBox.about(
+            self,
+            "About NMR Spectrum Matcher",
+            "<h3>NMR Spectrum Matcher</h3>"
+            "<p>Deep learning-based NMR spectrum component identification.</p>"
+            "<p><b>Model:</b> DeepMID — Siamese CNN + Spatial Pyramid Pooling<br>"
+            "<b>Parameters:</b> 470K<br>"
+            "<b>Task:</b> Plant flavor component identification from 1H-NMR</p>"
+            "<p>Version 0.1.0</p>",
+        )
 
     # ---- helpers ----
 
@@ -341,39 +609,14 @@ class MainWindow(QMainWindow):
             thread.quit()
             thread.wait(3000)
 
-    def _populate_results(self, results):
-        self.table.setRowCount(len(results))
-        for row, result in enumerate(results):
-            name = str(result.get("name") or "<unnamed>")
-            probability = result.get("probability")
-            self.table.setItem(row, 0, QTableWidgetItem(name))
-            try:
-                text = format(float(probability), ".4f")
-            except (TypeError, ValueError):
-                text = "n/a"
-            item = QTableWidgetItem(text)
-            item.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 1, item)
-
-    def _refresh_plot(self):
-        if not self._plot_pixmap:
-            return
-        w = max(320, self.plot_label.width() - 24)
-        h = max(240, self.plot_label.height() - 24)
-        scaled = self._plot_pixmap.scaled(
-            w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
-        self.plot_label.setPixmap(scaled)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._refresh_plot()
-
     def _set_busy(self, is_busy, drop_text):
         self.select_btn.setEnabled(not is_busy)
         self.select_zip_btn.setEnabled(not is_busy)
         self.server_input.setEnabled(not is_busy)
         self.test_btn.setEnabled(not is_busy)
+        self.history_combo.setEnabled(
+            not is_busy and len(self._result_history) > 0
+        )
         self.drop_label.setText(drop_text)
         self.progress.setVisible(is_busy)
         if is_busy:

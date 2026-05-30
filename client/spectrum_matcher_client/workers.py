@@ -11,6 +11,7 @@ from .api import ApiError, SpectrumMatcherApi
 class UploadWorker(QThread):
     finished = Signal(dict)
     error = Signal(str)
+    progress = Signal(int, int)
 
     def __init__(self, path, api=None):
         super().__init__()
@@ -20,6 +21,7 @@ class UploadWorker(QThread):
 
     def cancel(self):
         self._is_cancelled = True
+        self.api.cancel()
 
     def run(self):
         zip_path = None
@@ -33,7 +35,13 @@ class UploadWorker(QThread):
             if self._is_cancelled:
                 return
             filename = os.path.basename(zip_path)
-            result = self.api.upload_zip(zip_path, filename)
+
+            def on_progress(sent, total):
+                self.progress.emit(sent, total)
+
+            result = self.api.upload_zip(
+                zip_path, filename, progress_cb=on_progress
+            )
             if not self._is_cancelled:
                 self.finished.emit(result)
         except Exception as exc:

@@ -11,13 +11,16 @@ import shutil
 import uuid
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.gzip import GZipMiddleware
 
+from downsample import downsample
 from model_runner import init as init_model, match, get_config
 from plotter import plot_comparison
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
 
 app = FastAPI()
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 @app.on_event("startup")
@@ -51,6 +54,14 @@ async def upload_spectrum(file: UploadFile = File(...)):
 
     result = match(inner_dir)
 
+    # downsample spectrum data for client-side rendering
+    ds_query_ppm = downsample(result['query_ppm'])
+    ds_query_fid = downsample(result['query_fid'])
+    for r in result['results']:
+        if 'ppm' in r and 'fid' in r:
+            r['ppm_ds'] = downsample(r['ppm'])
+            r['fid_ds'] = downsample(r['fid'])
+
     plot_name = plot_comparison(
         result['query_ppm'], result['query_fid'], result['results']
     )
@@ -66,13 +77,19 @@ async def upload_spectrum(file: UploadFile = File(...)):
 
     light_results = []
     for r in result['results']:
-        light_results.append({'name': r['name'], 'probability': r['probability']})
+        entry = {'name': r['name'], 'probability': r['probability']}
+        if 'ppm_ds' in r:
+            entry['ppm_ds'] = r['ppm_ds']
+            entry['fid_ds'] = r['fid_ds']
+        light_results.append(entry)
     result['results'] = light_results
 
     shutil.rmtree(job_dir)
 
     return {
         'query_name': result['query_name'],
+        'query_ppm': ds_query_ppm,
+        'query_fid': ds_query_fid,
         'results': result['results'],
         'plot_base64': plot_b64,
         'model': dict(get_config()),
