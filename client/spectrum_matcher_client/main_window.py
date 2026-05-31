@@ -361,6 +361,14 @@ class MainWindow(QMainWindow):
     # ---- upload flow ----
 
     def _upload(self, path):
+        # disconnect old worker signals to prevent stale interference
+        if self._upload_thread is not None:
+            try:
+                self._upload_thread.finished.disconnect()
+                self._upload_thread.error.disconnect()
+                self._upload_thread.progress.disconnect()
+            except (RuntimeError, TypeError):
+                pass
         self._cleanup_thread(self._upload_thread)
 
         name = os.path.basename(os.path.normpath(path))
@@ -376,8 +384,8 @@ class MainWindow(QMainWindow):
         self._upload_thread.finished.connect(self._on_upload_result)
         self._upload_thread.error.connect(self._on_upload_error)
         self._upload_thread.progress.connect(self._on_upload_progress)
+        # Use Qt's built-in finished signal for safe cleanup (fires after run() returns)
         self._upload_thread.finished.connect(self._upload_thread.deleteLater)
-        self._upload_thread.error.connect(self._upload_thread.deleteLater)
         self._upload_thread.start()
 
     def _on_upload_progress(self, sent, total):

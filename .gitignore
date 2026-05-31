@@ -34,4 +34,5 @@ DeepMID-main/
 
 # Allow test data zips
 !tests/*.zip
+!tests/fixtures/*.zip
 !tests/b1_sample/

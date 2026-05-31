@@ -136,6 +136,13 @@ def match(query_dir):
     import numpy as np
     from deepmid.DeepMID_Ori import predict_DeepMID
 
+    pdata_dir = os.path.join(query_dir, '1', 'pdata', '1')
+    if not os.path.isdir(pdata_dir):
+        raise ValueError(
+            "No Bruker spectrum found. "
+            "Expected 1/pdata/1/ under the uploaded directory."
+        )
+
     query = read_bruker_h_base(query_dir, False, True)
     refs = _plant_flavors
     n = len(refs)

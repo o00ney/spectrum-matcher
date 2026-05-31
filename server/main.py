@@ -42,55 +42,63 @@ async def upload_spectrum(file: UploadFile = File(...)):
     with open(zip_path, 'wb') as f:
         shutil.copyfileobj(file.file, f)
 
-    extract_dir = os.path.join(job_dir, 'extracted')
-    os.makedirs(extract_dir, exist_ok=True)
-    shutil.unpack_archive(zip_path, extract_dir)
+    try:
+        extract_dir = os.path.join(job_dir, 'extracted')
+        os.makedirs(extract_dir, exist_ok=True)
+        shutil.unpack_archive(zip_path, extract_dir)
 
-    inner_dir = extract_dir
-    for dirpath, dirs, _ in os.walk(extract_dir):
-        if 'pdata' in dirs:
-            inner_dir = os.path.dirname(dirpath)
-            break
+        inner_dir = extract_dir
+        for dirpath, dirs, _ in os.walk(extract_dir):
+            if 'pdata' in dirs:
+                inner_dir = os.path.dirname(dirpath)
+                break
 
-    result = match(inner_dir)
+        result = match(inner_dir)
 
-    # downsample spectrum data for client-side rendering
-    ds_query_ppm = downsample(result['query_ppm'])
-    ds_query_fid = downsample(result['query_fid'])
-    for r in result['results']:
-        if 'ppm' in r and 'fid' in r:
-            r['ppm_ds'] = downsample(r['ppm'])
-            r['fid_ds'] = downsample(r['fid'])
+        # downsample spectrum data for client-side rendering
+        ds_query_ppm = downsample(result['query_ppm'])
+        ds_query_fid = downsample(result['query_fid'])
+        for r in result['results']:
+            if 'ppm' in r and 'fid' in r:
+                r['ppm_ds'] = downsample(r['ppm'])
+                r['fid_ds'] = downsample(r['fid'])
 
-    plot_name = plot_comparison(
-        result['query_ppm'], result['query_fid'], result['results']
-    )
+        plot_name = plot_comparison(
+            result['query_ppm'], result['query_fid'], result['results']
+        )
 
-    # read generated plot as base64
-    plot_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        'static', 'plots', plot_name,
-    )
-    with open(plot_path, 'rb') as pf:
-        plot_b64 = base64.b64encode(pf.read()).decode('ascii')
-    os.remove(plot_path)
+        # read generated plot as base64
+        plot_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            'static', 'plots', plot_name,
+        )
+        with open(plot_path, 'rb') as pf:
+            plot_b64 = base64.b64encode(pf.read()).decode('ascii')
+        os.remove(plot_path)
 
-    light_results = []
-    for r in result['results']:
-        entry = {'name': r['name'], 'probability': r['probability']}
-        if 'ppm_ds' in r:
-            entry['ppm_ds'] = r['ppm_ds']
-            entry['fid_ds'] = r['fid_ds']
-        light_results.append(entry)
-    result['results'] = light_results
+        light_results = []
+        for r in result['results']:
+            entry = {'name': r['name'], 'probability': r['probability']}
+            if 'ppm_ds' in r:
+                entry['ppm_ds'] = r['ppm_ds']
+                entry['fid_ds'] = r['fid_ds']
+            light_results.append(entry)
+        result['results'] = light_results
 
-    shutil.rmtree(job_dir)
-
-    return {
-        'query_name': result['query_name'],
-        'query_ppm': ds_query_ppm,
-        'query_fid': ds_query_fid,
-        'results': result['results'],
-        'plot_base64': plot_b64,
-        'model': dict(get_config()),
-    }
+        return {
+            'query_name': result['query_name'],
+            'query_ppm': ds_query_ppm,
+            'query_fid': ds_query_fid,
+            'results': result['results'],
+            'plot_base64': plot_b64,
+            'model': dict(get_config()),
+        }
+    except HTTPException:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
+    except Exception as exc:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Processing failed: {exc}",
+        ) from exc

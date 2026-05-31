@@ -25,6 +25,8 @@ class UploadWorker(QThread):
 
     def run(self):
         zip_path = None
+        result_data = None
+        error_msg = None
         try:
             if self._is_cancelled:
                 return
@@ -39,21 +41,23 @@ class UploadWorker(QThread):
             def on_progress(sent, total):
                 self.progress.emit(sent, total)
 
-            result = self.api.upload_zip(
+            result_data = self.api.upload_zip(
                 zip_path, filename, progress_cb=on_progress
             )
-            if not self._is_cancelled:
-                self.finished.emit(result)
         except Exception as exc:
             traceback.print_exc()
             msg = str(exc) if str(exc) else type(exc).__name__
-            self.error.emit("Upload: " + msg)
+            error_msg = "Upload: " + msg
         finally:
             if zip_path and zip_path != self.path and os.path.exists(zip_path):
                 try:
                     os.unlink(zip_path)
                 except OSError:
                     pass
+        if error_msg:
+            self.error.emit(error_msg)
+        elif result_data is not None and not self._is_cancelled:
+            self.finished.emit(result_data)
 
 
 class HealthCheckWorker(QThread):
