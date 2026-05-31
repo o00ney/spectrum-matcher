@@ -95,3 +95,8 @@
   - `tests/edge_cases/`（12 测试）：损坏的 zip、非 Bruker zip、空 zip、缺少 pdata/、并发上传、取消操作。
   - `tests/fixtures/`（4 个）：空 zip、损坏字节 zip、非 Bruker 合法 zip、无 pdata/ 的 Bruker 风格 zip。
   - `.github/workflows/tests.yml`：CI 矩阵（Python 3.10/3.11/3.12），覆盖率报告。
+- **开发日志补全**：根据全部 24 个 commit 补全 `log.md`，中文按日期分组详细记录所有变更。
+- **UI 布局优化**：从上下布局改为左右分栏布局。
+  - 左侧面板：服务器配置、拖拽上传区、进度条、操作按钮、结果表格。
+  - 右侧面板：交互式 matplotlib 绑图（缩放/平移/保存）。
+  - 窗口最小尺寸调整为 1100×680，左右比例 ~42%:58%，可通过拖拽分界线调整。
