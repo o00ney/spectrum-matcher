@@ -53,7 +53,7 @@ class MainWindow(QMainWindow):
         self._start_ts = 0.0
 
         self.setWindowTitle("NMR Spectrum Matcher")
-        self.setMinimumSize(960, 720)
+        self.setMinimumSize(1100, 680)
 
         self._setup_menu()
         self._setup_ui()
@@ -144,12 +144,19 @@ class MainWindow(QMainWindow):
     def _setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
+        outer = QHBoxLayout(central)
+        outer.setContentsMargins(6, 6, 6, 6)
 
-        # --- server row ---
+        # ---- left panel ----
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 4, 0)
+        left_layout.setSpacing(4)
+
+        # server row
         server_layout = QHBoxLayout()
         server_label = QLabel("Server:")
-        server_label.setFixedWidth(45)
+        server_label.setFixedWidth(42)
         server_layout.addWidget(server_label)
 
         self.server_input = QLineEdit(get_server_url())
@@ -161,35 +168,34 @@ class MainWindow(QMainWindow):
         server_layout.addWidget(self.server_input)
 
         self.test_btn = QPushButton("Test")
-        self.test_btn.setFixedWidth(50)
+        self.test_btn.setFixedWidth(48)
         self.test_btn.setToolTip("Test connectivity to the server")
         self.test_btn.clicked.connect(self._test_server)
         server_layout.addWidget(self.test_btn)
-        layout.addLayout(server_layout)
+        left_layout.addLayout(server_layout)
 
-        # --- drop area ---
+        # drop area
         self.drop_label = QLabel(DROP_TEXT)
         self.drop_label.setAlignment(Qt.AlignCenter)
-        self.drop_label.setMinimumHeight(90)
+        self.drop_label.setMinimumHeight(68)
         self.drop_label.setStyleSheet(
-            "border: 2px dashed #888; border-radius: 8px; "
-            "font-size: 14px; color: #666;"
+            "border: 2px dashed #888; border-radius: 6px; "
+            "font-size: 13px; color: #666;"
         )
         self.drop_label.setToolTip(
             "Drag a Bruker spectrum folder or .zip file here, or click to browse"
         )
         self.drop_label.mousePressEvent = self._on_drop_click
-        layout.addWidget(self.drop_label)
+        left_layout.addWidget(self.drop_label)
 
-        # --- progress ---
+        # progress
         self.progress = QProgressBar()
         self.progress.setVisible(False)
         self.progress.setToolTip("Upload and processing progress")
-        layout.addWidget(self.progress)
+        left_layout.addWidget(self.progress)
 
-        # --- buttons ---
+        # buttons
         btn_layout = QHBoxLayout()
-
         self.select_btn = QPushButton("Select Folder")
         self.select_btn.setToolTip("Browse for a Bruker spectrum folder")
         self.select_btn.clicked.connect(self._select_folder)
@@ -207,18 +213,15 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(self.time_label)
 
         self.history_combo = QComboBox()
-        self.history_combo.setMinimumWidth(160)
+        self.history_combo.setMinimumWidth(140)
         self.history_combo.setToolTip("Previous upload results")
         self.history_combo.setEnabled(False)
         self.history_combo.currentIndexChanged.connect(self._on_history_selected)
         btn_layout.addWidget(self.history_combo)
-
         btn_layout.addStretch()
-        layout.addLayout(btn_layout)
+        left_layout.addLayout(btn_layout)
 
-        # --- results + plot ---
-        splitter = QSplitter(Qt.Vertical)
-
+        # results table
         table_wrapper = QWidget()
         table_layout = QVBoxLayout(table_wrapper)
         table_layout.setContentsMargins(0, 0, 0, 0)
@@ -244,20 +247,21 @@ class MainWindow(QMainWindow):
         self.model_label.setAlignment(Qt.AlignRight)
         table_layout.addWidget(self.model_label)
 
-        splitter.addWidget(table_wrapper)
-
+        # ---- right panel (plot) ----
         self.plot_widget = SpectrumPlotWidget()
-        self.plot_widget.setMinimumHeight(320)
         self.plot_widget.setToolTip(
             "Comparison plot of query spectrum vs. top matches"
         )
         self.plot_widget.toolbar().setVisible(
             self.settings.plot_toolbar_visible
         )
-        splitter.addWidget(self.plot_widget)
 
-        splitter.setSizes([240, 400])
-        layout.addWidget(splitter)
+        # ---- horizontal splitter ----
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(left)
+        splitter.addWidget(self.plot_widget)
+        splitter.setSizes([460, 640])
+        outer.addWidget(splitter)
 
         self.setAcceptDrops(True)
 
